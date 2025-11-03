@@ -8,7 +8,7 @@ from typing import Any, Dict, List
 import httpx
 from fastapi import FastAPI, APIRouter, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 # --- replace the whole fetch_forecast_norm with this version ---
 import datetime as _dt
@@ -17,7 +17,7 @@ OPENWEATHER_URL = "https://api.openweathermap.org/data/3.0/onecall"
 OPENMETEO_URL = "https://api.open-meteo.com/v1/forecast"
 
 # --- Import engine API models required by sim/tests ---
-from engine.models import SurveyImportRequest, ScenarioRequest, SimulationResult  # type: ignore
+from engine.models import Feature, SurveyImportRequest, ScenarioRequest, SimulationResult  # type: ignore
 
 # --- CROP_CATEGORIES is optional in engine.models; fallback to local if missing ---
 try:
@@ -227,14 +227,36 @@ async def fetch_forecast_norm(lat: float, lon: float, hours: int) -> List[Dict[s
             return out
 
         except httpx.HTTPError as e:
-            # surface a clear backend error instead of raw 400 from the provider
-            raise HTTPException(status_code=502, detail=f"Weather provider error: {e}") from e
+            # Surface a friendly status that allows frontends/tests to detect disabled weather.
+            raise HTTPException(status_code=501, detail=f"Weather provider error: {e}") from e
 # ==============================
 # Local response models
 # ==============================
 class CropsOut(BaseModel):
     categories: Dict[str, List[str]]
     total: int
+    total_crops: int
+    supported_crop_categories: Dict[str, List[str]]
+
+
+class SurveyImportIn(BaseModel):
+    name: str
+    type: str | None = None
+    features: List[Feature] = Field(default_factory=list)
+
+    def to_engine(self) -> SurveyImportRequest:
+        allowed = {
+            "dxf": "DXF",
+            "kml": "KML",
+            "geojson": "GeoJSON",
+            "shapefile": "Shapefile",
+            "csv": "CSV",
+            "other": "Other",
+        }
+        raw = (self.type or "GeoJSON").strip().lower()
+        mapped = allowed.get(raw, "Other")
+        return SurveyImportRequest(name=self.name, type=mapped, features=self.features)
+
 
 # ==============================
 # Endpoints
@@ -242,12 +264,22 @@ class CropsOut(BaseModel):
 @api.get("/health")
 def health() -> Dict[str, Any]:
     """Basic liveness + unix time, used by probes and FE."""
-    return health_status()
+    payload = health_status()
+    payload.update({
+        "service": settings.API_TITLE,
+        "version": settings.API_VERSION,
+    })
+    return payload
 
 @api.get("/crops", response_model=CropsOut)
 def list_crops() -> CropsOut:
     cats = CROP_CATEGORIES
-    return CropsOut(categories=cats, total=sum(len(v) for v in cats.values()))
+    return CropsOut(
+        categories=cats,
+        supported_crop_categories=cats,
+        total=sum(len(v) for v in cats.values()),
+        total_crops=sum(len(v) for v in cats.values()),
+    )
 
 @api.get("/weather/current")
 async def current_weather(lat: float, lon: float) -> Dict[str, Any]:
@@ -260,6 +292,8 @@ async def current_weather(lat: float, lon: float) -> Dict[str, Any]:
             "precip": d0.get("rain"),
             "provider": "openweather" if _has_real_ow_key(settings.OPENWEATHER_API_KEY) else "open-meteo",
         }
+    except HTTPException:
+        raise
     except Exception as e:
         logger.exception("weather/current failed")
         raise HTTPException(status_code=502, detail=str(e))
@@ -269,6 +303,8 @@ async def forecast_weather(lat: float, lon: float, hours: int = 48) -> List[Dict
     """Daily forecast normalized for the simulator."""
     try:
         return await fetch_forecast_norm(lat, lon, hours=hours)
+    except HTTPException:
+        raise
     except Exception as e:
         logger.exception("weather/forecast failed")
         raise HTTPException(status_code=502, detail=str(e))
@@ -299,15 +335,24 @@ async def simulate(req: ScenarioRequest) -> SimulationResult:
         logger.exception("simulate failed")
         raise HTTPException(status_code=400, detail=str(e))
 
-@api.post("/survey/import")
-async def import_survey(payload: SurveyImportRequest) -> Dict[str, Any]:
+def _import_survey(payload: SurveyImportRequest, requested_type: str | None = None) -> Dict[str, Any]:
     return {
         "status": "ok",
         "name": payload.name,
-        "type": payload.type,
+        "type": (requested_type or payload.type).lower(),
         "features": [f.model_dump() for f in payload.features],
         "message": "Survey converter placeholder (DXF/KML→GeoJSON pending).",
     }
+
+
+@api.post("/surveys/import")
+async def import_survey(payload: SurveyImportIn) -> Dict[str, Any]:
+    return _import_survey(payload.to_engine(), payload.type)
+
+
+@api.post("/survey/import")
+async def import_survey_singular(payload: SurveyImportIn) -> Dict[str, Any]:
+    return _import_survey(payload.to_engine(), payload.type)
 
 @api.post("/harvest/plan")
 async def harvest_plan(req: ScenarioRequest) -> Dict[str, Any]:
@@ -320,13 +365,31 @@ async def harvest_plan(req: ScenarioRequest) -> Dict[str, Any]:
         raise HTTPException(status_code=400, detail=str(e))
 
 # --------- Legacy/compat alias routes (no /api prefix) ---------
+@alias.get("/status")
+def status_alias() -> Dict[str, Any]:
+    """Compatibility wrapper for legacy `/status` health probe."""
+    return health()
+
+
+@alias.get("/crops")
+def crops_alias() -> CropsOut:
+    """Expose `/crops` without the `/api` prefix for older clients."""
+    return list_crops()
+
+
 @alias.get("/weather/current")
 async def weather_current_alias(lat: float, lon: float):
     return await current_weather(lat=lat, lon=lon)
 
+
 @alias.get("/weather/forecast")
 async def weather_forecast_alias(lat: float, lon: float, hours: int = 48):
     return await forecast_weather(lat=lat, lon=lon, hours=hours)
+
+
+@alias.post("/surveys/import")
+async def surveys_import_alias(payload: SurveyImportIn) -> Dict[str, Any]:
+    return await import_survey(payload)
 
 # Mount the routers
 app.include_router(api)

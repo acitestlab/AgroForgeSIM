@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Stage, Layer, Group, Circle, Line, Text, Rect } from 'react-konva'
 import Button from '../components/Button'
-import { useStore, type Pos } from '../store'
-import { cropColor, growthColor } from './sprites'
+import { useStore, type Pos, type Link } from '../store'
+import { cropColor, growthColor } from './sprite-utils'
 
 const rid = () =>
   (typeof crypto !== 'undefined' && 'randomUUID' in crypto
@@ -27,10 +27,15 @@ export default function FarmTopology() {
   // ---- derived info
   const total = nodes.length
   const byType = useMemo(
-    () => nodes.reduce((acc, n) => ((acc[n.type] = (acc[n.type] || 0) + 1), acc), {} as Record<string, number>),
+    () =>
+      nodes.reduce((acc, n) => {
+        const key = n.type ?? 'plot'
+        acc[key] = (acc[key] || 0) + 1
+        return acc
+      }, {} as Record<string, number>),
     [nodes]
   )
-  const disabled = loading.crops || loading.forecast || loading.simulate
+  const disabled = Boolean(loading.crops || loading.forecast || loading.simulate)
 
   // ---- selection & linking UI
   const [pendingLink, setPendingLink] = useState<string | null>(null)
@@ -153,7 +158,7 @@ export default function FarmTopology() {
             {gridLines(800, 420, 40)}
 
             {/* links */}
-            {links.map((l) => {
+            {links.map((l: Link) => {
               const a = positions[l.from]
               const b = positions[l.to]
               if (!a || !b) return null
@@ -170,7 +175,7 @@ export default function FarmTopology() {
             {/* nodes */}
             {nodes.map((n) => {
               const p = positions[n.id] || { x: 120, y: 120 }
-              const fill = nodeFill(n.type, n.crop)
+              const fill = nodeFill(n.type ?? 'plot', n.crop)
               const selected = selectedId === n.id
               return (
                 <Group
@@ -238,7 +243,7 @@ function Inspector({
 
   if (!node) return null
 
-  const groups = Object.entries(crops)
+  const groups = Object.entries(crops ?? {})
   const flat = groups.flatMap(([, arr]) => arr)
 
   return (

@@ -1,13 +1,14 @@
 import React, { useMemo, useId } from "react";
+import Button from "../components/Button";
 import { useStore } from "../store";
 
-export default function Timeline() {
-  // This file looked like an Inspector copy; keep it functional but safe.
+export default function Inspector() {
   const selectedId = useStore((s) => s.selectedId ?? null);
   const nodes = useStore((s) => s.nodes ?? []);
   const crops = useStore((s) => s.crops ?? {});
   const upsertNode = useStore((s) => s.upsertNode);
   const setCrop = useStore((s) => s.setCrop);
+  const removeNode = useStore((s) => s.removeNode);
 
   const node = useMemo(() => {
     if (selectedId) return nodes.find((n) => n.id === selectedId) ?? null;
@@ -43,9 +44,18 @@ export default function Timeline() {
     }
   };
 
+  const canDelete = nodes.length > 1;
+  const handleDelete = () => {
+    if (!node || !canDelete) return;
+    const confirmed = window.confirm(`Remove ${node.name || "this node"}?`);
+    if (confirmed) {
+      removeNode?.(node.id);
+    }
+  };
+
   return (
-    <div className="card" style={{ padding: 10 }}>
-      <h3 style={{ marginTop: 0 }}>Timeline / Node Summary</h3>
+    <div className="card" role="region" aria-labelledby="inspector-title">
+      <h3 id="inspector-title">Node Summary</h3>
 
       <div style={{ display: "grid", gap: 10 }}>
         <div>
@@ -116,6 +126,12 @@ export default function Timeline() {
             </select>
           )}
         </div>
+      </div>
+
+      <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 12 }}>
+        <Button variant="ghost" onClick={handleDelete} disabled={!canDelete}>
+          Remove node
+        </Button>
       </div>
     </div>
   );

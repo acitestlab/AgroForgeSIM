@@ -8,7 +8,18 @@ import type { Geometry, Polygon, MultiPolygon, Feature } from "geojson";
 export type Task = { date: string; op: string; notes?: string };
 export type SimResult = { yield_t?: number; plan?: Task[] } & Record<string, any>;
 
-export type Node = { id: string; name: string; crop?: string; area_ha?: number };
+export type Node = {
+  id: string;
+  name: string;
+  label?: string;
+  crop?: string;
+  area_ha?: number;
+  area_acres?: number;
+  type?: "plot" | "weather" | "irrigation" | string;
+};
+
+export type Pos = { x: number; y: number };
+export type Link = { id: string; from: string; to: string };
 
 export type Field = {
   id: string;
@@ -19,7 +30,7 @@ export type Field = {
 
 type Crops = Record<string, string[]>;
 
-type LoadingFlags = { crops?: boolean; sim?: boolean };
+type LoadingFlags = { crops?: boolean; sim?: boolean; simulate?: boolean; forecast?: boolean };
 
 type State = {
   // crop & catalog
@@ -41,8 +52,8 @@ type State = {
 
   // (legacy / optional) graph-ish bits some panels might read
   nodes: Node[];
-  positions?: any;
-  links?: any;
+  positions: Record<string, Pos>;
+  links: Link[];
 };
 
 type Actions = {
@@ -57,6 +68,12 @@ type Actions = {
 
   // node convenience for canvases that expect a "nodes" list
   upsertNode: (n: Node) => void;
+  addNode: (payload: Partial<Node> & { id?: string }) => string;
+  updateNode: (id: string, patch: Partial<Node>) => void;
+  removeNode: (id: string) => void;
+  addLink: (from: string, to: string) => void;
+  setPosition: (id: string, pos: Pos) => void;
+  select: (id: string | null | undefined) => void;
 
   runSim: () => Promise<void>;
 };
@@ -111,9 +128,21 @@ export const useStore = create<State & Actions>()(
         lon: 3.13,
 
         // Start with one node/field so UI has something to render
-        nodes: [{ id: "root", name: "Field A", crop: "cassava", area_ha: 1 }],
+        nodes: [
+          {
+            id: "root",
+            name: "Field A",
+            label: "Field A",
+            crop: "cassava",
+            area_ha: 1,
+            area_acres: 2.47,
+            type: "plot",
+          },
+        ],
         fields: [{ id: "root", name: "Field A", geometry: null, area_ha: 1 }],
         selectedId: "root",
+        positions: { root: { x: 160, y: 180 } },
+        links: [],
 
         /* ----------------------------- actions ----------------------------- */
         async init() {
@@ -146,16 +175,27 @@ export const useStore = create<State & Actions>()(
         },
 
         addField(name = "") {
-          const id = (globalThis.crypto?.randomUUID?.() ?? Math.random().toString(36).slice(2));
+          const id = globalThis.crypto?.randomUUID?.() ?? Math.random().toString(36).slice(2);
           const nextName = name || `Field ${get().fields.length + 1}`;
 
           const field: Field = { id, name: nextName, geometry: null, area_ha: undefined };
           set({ fields: [...get().fields, field] });
 
           // create/align a node as well for canvases
-          const node: Node = { id, name: nextName, crop: get().crop, area_ha: field.area_ha };
+          const node: Node = {
+            id,
+            name: nextName,
+            label: nextName,
+            crop: get().crop,
+            area_ha: field.area_ha,
+            type: "plot",
+          };
           const others = get().nodes.filter((x) => x.id !== id);
-          set({ nodes: [...others, node], selectedId: id });
+          set({
+            nodes: [...others, node],
+            selectedId: id,
+            positions: { ...get().positions, [id]: { x: 120 + others.length * 60, y: 160 + others.length * 20 } },
+          });
 
           return id;
         },
@@ -195,6 +235,56 @@ export const useStore = create<State & Actions>()(
           set({ nodes: [...others, n] });
         },
 
+        addNode(payload) {
+          const id = payload.id ?? (globalThis.crypto?.randomUUID?.() ?? Math.random().toString(36).slice(2));
+          const label = payload.label ?? payload.name ?? `Node ${get().nodes.length + 1}`;
+          const areaHaFromAcres =
+            typeof payload.area_acres === "number" ? Number(payload.area_acres) * 0.404686 : undefined;
+          const node: Node = {
+            id,
+            name: label,
+            label,
+            crop: payload.crop ?? get().crop,
+            area_ha: typeof payload.area_ha === "number" ? payload.area_ha : areaHaFromAcres,
+            area_acres: payload.area_acres,
+            type: payload.type ?? "plot",
+          };
+          const others = get().nodes.filter((x) => x.id !== id);
+          set({
+            nodes: [...others, node],
+            selectedId: id,
+            positions: { ...get().positions, [id]: get().positions[id] ?? { x: 140 + others.length * 60, y: 180 } },
+          });
+          return id;
+        },
+
+        updateNode(id, patch) {
+          const updated = get().nodes.map((n) => (n.id === id ? { ...n, ...patch, name: patch.label ?? patch.name ?? n.name } : n));
+          set({ nodes: updated });
+        },
+
+        removeNode(id) {
+          set({
+            nodes: get().nodes.filter((n) => n.id !== id),
+            links: get().links.filter((l) => l.from !== id && l.to !== id),
+          });
+        },
+
+        addLink(from, to) {
+          const existing = get().links.find((l) => l.from === from && l.to === to);
+          if (existing || from === to) return;
+          const id = `${from}__${to}`;
+          set({ links: [...get().links, { id, from, to }] });
+        },
+
+        setPosition(id, pos) {
+          set({ positions: { ...get().positions, [id]: pos } });
+        },
+
+        select(id) {
+          set({ selectedId: id ?? null });
+        },
+
         async runSim() {
           const { crop, lat, lon, fields, selectedId } = get();
 
@@ -205,7 +295,7 @@ export const useStore = create<State & Actions>()(
           const useLon = c ? c[0] : lon;
 
           try {
-            set({ loading: { ...get().loading, sim: true }, error: undefined });
+            set({ loading: { ...get().loading, sim: true, simulate: true }, error: undefined });
 
             // Match your FastAPI /api/simulate
             const body = {
@@ -234,7 +324,7 @@ export const useStore = create<State & Actions>()(
             set({ error: String(e?.message || e) });
             alert(`Simulation failed: ${String(e?.message || e)}`);
           } finally {
-            set({ loading: { ...get().loading, sim: false } });
+            set({ loading: { ...get().loading, sim: false, simulate: false } });
           }
         },
       }),

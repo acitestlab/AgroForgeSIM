@@ -1,6 +1,6 @@
 // e.g., src/components/MapIbese.tsx
 import { useEffect } from "react";
-import { GeoJSON } from "react-leaflet";
+import L from "leaflet";
 import type { FeatureCollection } from "geojson";
 import { useMap } from "react-leaflet";
 

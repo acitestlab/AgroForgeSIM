@@ -1,0 +1,5 @@
+# Run all tests
+pytest backend/tests/ -v
+
+# Run CLI demo
+python backend/cli.py simulate backend/examples/scenario_maize.yaml

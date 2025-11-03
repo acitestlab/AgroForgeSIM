@@ -1,0 +1,42 @@
+# 🌾 AgroForgeSIM Example Scenario (Maize)
+# Schema aligned with backend/cli.py and engine models.
+# Reproducible: uses CSV-driven weather by default.
+
+# ---- Field configuration (hectares, NOT acres) ----
+field:
+  id: F1
+  name: Demo Plot – Maize
+  area_ha: 2.0              # ≈ 4.94 acres
+  crop: maize               # case-insensitive, must be supported in engine.params
+  plant_date: 2025-03-01
+  density_plants_m2: 6.0
+  irrigation_mm_day: 1.5    # daily irrigation (mm/day). 0.0 for rainfed
+
+# ---- Soil (simple root-zone capacity placeholder) ----
+soil_rootzone_capacity_mm: 150
+
+# ---- Weather (choose ONE of the options below) ----
+
+# Option A: CSV weather (preferred for CI & reproducibility)
+weather_csv: backend/examples/weather_sample.csv
+
+# Option B: Inline daily weather (uncomment to use)
+# weather:
+#   - {date: 2025-03-01, tmin: 20, tmax: 30, rain: 0.0,  rad: 18.0, et0: 4.0}
+#   - {date: 2025-03-02, tmin: 21, tmax: 31, rain: 2.5,  rad: 17.5, et0: 4.1}
+#   - {date: 2025-03-03, tmin: 19, tmax: 29, rain: 5.0,  rad: 16.8, et0: 3.9}
+#   # ... add as many days as needed for the run
+
+# ---- Live weather notes (optional) ----
+# For live runs, keep this file as-is and pass flags to the CLI:
+#   python backend/cli.py simulate backend/examples/scenario_maize.yaml \
+#       --live-weather --lat 6.95 --lon 3.13 --hours 168
+# The block below is informational only (not read by the CLI):
+location:
+  lat: 6.95
+  lon: 3.13
+  hours: 168
+
+# ---- Description (free text) ----
+description: >
+  Baseline maize scenario for demo and CI. Uses CSV-driven weather for determinism.

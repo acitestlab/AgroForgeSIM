@@ -1,0 +1,62 @@
+AgroForgeSIM/
+├── backend/
+│   ├── .env
+│   ├── app.py
+│   ├── cli.py
+│   ├── requirements.txt
+│   ├── __init__.py
+│   │
+│   ├── engine/
+│   │   ├── __init__.py
+│   │   ├── models.py
+│   │   ├── params.py
+│   │   ├── sim.py
+│   │   ├── harvest.py
+│   │   ├── weather.py
+│   │   └── utils.py
+│   │
+│   ├── examples/
+│   │   ├── scenario_maize.yaml
+│   │   ├── weather_sample.csv
+│   │   └── README.md
+│   │
+│   ├── tests/
+│   │   ├── test_simulation.py
+│   │   ├── test_api.py
+│   │   └── conftest.py
+│   │
+│   └── logs/
+│       └── .gitkeep
+│
+├── frontend/
+│   ├── index.html
+│   ├── package.json
+│   ├── vite.config.ts
+│   │
+│   ├── public/
+│   │   └── styles.css
+│   │
+│   └── src/
+│       ├── main.tsx
+│       ├── App.tsx
+│       ├── api.ts
+│       ├── store.ts
+│       │
+│       ├── canvas/
+│       │   ├── FarmCanvas.tsx
+│       │   ├── FarmTopology.tsx
+│       │   └── sprites.tsx
+│       │
+│       ├── panels/
+│       │   ├── Inspector.tsx
+│       │   └── Timeline.tsx
+│       │
+│       └── components/
+│       	 ├── HarvestPlan.tsx
+│           ├── Button.tsx
+│           ├── Card.tsx
+│           └── Loader.tsx
+│
+├── .gitignore
+├── README.md
+└── docker-compose.yml

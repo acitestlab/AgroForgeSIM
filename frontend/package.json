@@ -1,0 +1,57 @@
+{
+  "name": "agroforge-sim-frontend",
+  "version": "2.0.0",
+  "private": true,
+  "description": "AgroForgeSIM — React + Vite frontend for farm planning and simulation",
+  "license": "MIT",
+  "type": "module",
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "scripts": {
+    "dev": "vite --port 5173",
+    "build": "tsc -b && vite build",
+    "preview": "vite preview --port 5173",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint . --ext .ts,.tsx",
+    "format": "prettier --check ."
+  },
+  "dependencies": {
+    "@turf/turf": "7.2.0",
+    "axios": "^1.12.2",
+    "konva": "9.3.16",
+    "leaflet": "^1.9.4",
+    "react": "18.3.1",
+    "react-dom": "18.3.1",
+    "react-konva": "18.2.10",
+    "react-leaflet": "4.2.1",
+    "reactflow": "11.10.4",
+    "zustand": "4.5.2"
+  },
+  "devDependencies": {
+    "@types/geojson": "^7946.0.14",
+    "@types/leaflet": "^1.9.12",
+    "@types/node": "^20.11.0",
+    "@types/react": "18.3.10",
+    "@types/react-dom": "18.3.0",
+    "@vitejs/plugin-react": "^4.7.0",
+    "eslint": "^9.11.0",
+    "eslint-plugin-react": "^7.35.0",
+    "prettier": "^3.3.3",
+    "typescript": "^5.6.3",
+    "vite": "^7.1.9"
+  },
+  "browserslist": {
+    "production": [
+      "last 2 Chrome versions",
+      "last 2 Firefox versions",
+      "last 2 Edge versions",
+      "Safari >= 15"
+    ],
+    "development": [
+      "last 1 chrome version",
+      "last 1 firefox version",
+      "last 1 safari version"
+    ]
+  }
+}

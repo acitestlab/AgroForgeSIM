@@ -1,0 +1,13 @@
+{
+  "species": "maize",
+  "cultivar": "DMR-Early",
+  "tb": 8,
+  "to": 30,
+  "gdd": { "emerg": 80, "flower": 650, "maturity": 1200 },
+  "lai_max": 5.0,
+  "rue_g_dm_mj": 1.6,
+  "hi": 0.48,
+  "kc": { "ini": 0.3, "mid": 1.2, "end": 0.6 },
+  "root_depth_curve": [[0,0.1],[30,0.4],[60,0.8],[90,1.0]],
+  "stress_sens": { "flower_water": 0.6, "grainfill_water": 0.4, "n": 0.5 }
+}

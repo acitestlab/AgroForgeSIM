@@ -1,0 +1,64 @@
+version: "3.9"
+
+name: agroforge
+
+networks:
+  agroforge-net:
+    driver: bridge
+
+services:
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: agroforge-backend
+    env_file:
+      - ./backend/.env
+    environment:
+      # Useful defaults; override in backend/.env as needed
+      API_PREFIX: /api
+      UVICORN_HOST: 0.0.0.0
+      UVICORN_PORT: 8000
+    ports:
+      - "8000:8000"
+    volumes:
+      # Persist logs and allow read-only access to example data
+      - type: bind
+        source: ./backend/logs
+        target: /app/logs
+      - type: bind
+        source: ./backend/examples
+        target: /app/examples
+        read_only: true
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8000/api/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+    networks:
+      - agroforge-net
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: agroforge-frontend
+    # Provide the API base URL to your frontend (adjust if you serve the API behind a different host)
+    environment:
+      VITE_API_BASE_URL: "http://localhost:8000/api"
+    ports:
+      - "5173:80"
+    depends_on:
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost" ]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+    networks:
+      - agroforge-net

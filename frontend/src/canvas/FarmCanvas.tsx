@@ -1,159 +1,348 @@
-import React, { useMemo } from "react";
-import { Stage, Layer, Group, Text, Rect, Line, Circle } from "react-konva";
-// NOTE: We intentionally do NOT import CropSprite until it's fixed to use Konva <Image />
-// import { SoilBlock, Roots, NutrientBars, CropSprite } from "./sprites";
-import { SoilBlock, Roots, NutrientBars } from "./sprites";
+import React, { useEffect, useMemo, useRef } from "react";
 import { useStore } from "../store";
 
+const clamp = (value: number, min: number, max: number) =>
+  Math.min(max, Math.max(min, value));
+
+const FRUIT_CROPS = new Set([
+  "mango",
+  "apple",
+  "orange",
+  "banana",
+  "pineapple",
+  "guava",
+  "papaya",
+  "lemon",
+  "grapes",
+]);
+
+const ROOT_CROPS = new Set(["cassava", "yams", "carrot", "beet"]);
+const GRAIN_CROPS = new Set(["maize", "rice", "sorghum"]);
+const LEGUME_CROPS = new Set([
+  "beans",
+  "cowpea",
+  "chickpea",
+  "lentils",
+  "fava beans",
+  "mung bean",
+]);
+const LEAFY_CROPS = new Set([
+  "spinach",
+  "amaranth",
+  "cabbage",
+  "pepper",
+  "tomato",
+  "okra",
+  "broccoli",
+  "cucumber",
+]);
+
+type Palette = {
+  stem: string;
+  highlight: string;
+  canopy: string;
+  bloom: string;
+};
+
+const paletteForCrop = (crop: string): Palette => {
+  const c = crop.toLowerCase();
+  if (FRUIT_CROPS.has(c)) {
+    return {
+      stem: "#8e24aa",
+      highlight: "#f06292",
+      canopy: "#f8bbd0",
+      bloom: "#ff80ab",
+    };
+  }
+  if (ROOT_CROPS.has(c)) {
+    return {
+      stem: "#6d4c41",
+      highlight: "#d7ccc8",
+      canopy: "#ffccbc",
+      bloom: "#ffab91",
+    };
+  }
+  if (GRAIN_CROPS.has(c)) {
+    return {
+      stem: "#2e7d32",
+      highlight: "#aee571",
+      canopy: "#dcedc8",
+      bloom: "#ffe082",
+    };
+  }
+  if (LEGUME_CROPS.has(c)) {
+    return {
+      stem: "#558b2f",
+      highlight: "#a5d6a7",
+      canopy: "#c5e1a5",
+      bloom: "#dcedc1",
+    };
+  }
+  if (LEAFY_CROPS.has(c)) {
+    return {
+      stem: "#1b5e20",
+      highlight: "#66bb6a",
+      canopy: "#b2ff9e",
+      bloom: "#a7ffeb",
+    };
+  }
+  return {
+    stem: "#2e7d32",
+    highlight: "#9ccc65",
+    canopy: "#c8e6c9",
+    bloom: "#f1f8e9",
+  };
+};
+
+const formatNumber = (value: number | null | undefined, digits = 1) => {
+  if (value === null || value === undefined || Number.isNaN(value)) return "-";
+  return Number(value).toFixed(digits);
+};
+
 export default function FarmCanvas() {
-  // Store alignment: selectedId, nodes, result
   const selectedId = useStore((s) => s.selectedId ?? null);
   const nodes = useStore((s) => s.nodes ?? []);
   const sim = useStore((s) => s.result);
 
-  // Resolve selected node safely (fallback to first)
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const sceneRef = useRef<HTMLDivElement | null>(null);
+
   const node = useMemo(
     () => (selectedId ? nodes.find((n) => n.id === selectedId) ?? null : nodes[0] ?? null),
-    [nodes, selectedId]
+    [nodes, selectedId],
   );
 
-  // ---- Derive display inputs (robust to missing data)
   const crop = (node?.crop ?? (sim as any)?.crop ?? "maize").toLowerCase();
-  const areaHa =
-    typeof node?.area_ha === "number"
-      ? node.area_ha
-      : typeof (sim as any)?.area_ha === "number"
-      ? (sim as any).area_ha
-      : 1;
 
-  const yieldTonnes =
-    typeof (sim as any)?.yield_t === "number"
-      ? (sim as any).yield_t
-      : (sim as any)?.yield_estimate?.expected_yield_tonnes ?? null;
+  const areaHa = useMemo(() => {
+    if (typeof node?.area_ha === "number") return node.area_ha;
+    if (typeof (sim as any)?.area_ha === "number") return (sim as any).area_ha;
+    return 1;
+  }, [node, sim]);
 
-  const cycleDays =
-    typeof (sim as any)?.cycle_days === "number"
-      ? (sim as any).cycle_days
-      : (sim as any)?.yield_estimate?.cycle_days ?? 90;
+  const yieldTonnes = useMemo(() => {
+    if (typeof (sim as any)?.yield_t === "number") return (sim as any).yield_t;
+    const nested = (sim as any)?.yield_estimate;
+    if (typeof nested?.expected_yield_tonnes === "number") return nested.expected_yield_tonnes;
+    return null;
+  }, [sim]);
 
-  const avgTemp =
-    typeof (sim as any)?.weather_summary?.avg_temp === "number"
-      ? (sim as any).weather_summary.avg_temp
-      : null;
-  const avgPrecip =
-    typeof (sim as any)?.weather_summary?.avg_precip === "number"
-      ? (sim as any).weather_summary.avg_precip
-      : null;
+  const cycleDays = useMemo(() => {
+    if (typeof (sim as any)?.cycle_days === "number") return (sim as any).cycle_days;
+    const nested = (sim as any)?.yield_estimate;
+    if (typeof nested?.cycle_days === "number") return nested.cycle_days;
+    return 90;
+  }, [sim]);
 
-  // Heuristic maturity estimate: keep consistent with your horizon_hours if you change it
+  const avgTemp = useMemo(() => {
+    if (typeof (sim as any)?.weather_summary?.avg_temp === "number") {
+      return (sim as any).weather_summary.avg_temp;
+    }
+    return null;
+  }, [sim]);
+
+  const avgPrecip = useMemo(() => {
+    if (typeof (sim as any)?.weather_summary?.avg_precip === "number") {
+      return (sim as any).weather_summary.avg_precip;
+    }
+    return null;
+  }, [sim]);
+
   const maturity = useMemo(() => {
-    const daysRan = 180; // ~6 months if horizon_hours=24*180 in store.runSim
-    return Math.max(0, Math.min(1, daysRan / (cycleDays || 180)));
+    const horizonDays = 180; // matches runSim horizon
+    return clamp(horizonDays / (cycleDays || horizonDays), 0, 1);
   }, [cycleDays]);
 
-  // Heuristic water "stress"
-  const waterStress = useMemo<number>(() => {
-    if (typeof avgPrecip !== "number") return 1.0;
-    if (avgPrecip < 0.5) return 0.5;
+  const waterAdequacy = useMemo(() => {
+    if (typeof avgPrecip !== "number") return 0.75;
+    if (avgPrecip < 0.5) return 0.35;
     if (avgPrecip > 5) return 0.9;
-    return 0.8;
+    return 0.75;
   }, [avgPrecip]);
 
-  // Nutrients HUD — placeholder until nutrient accounting is implemented
-  const N = 40,
-    P = 20,
-    K = 30;
+  const palette = useMemo(() => paletteForCrop(crop), [crop]);
 
-  // Growth label + color cue
-  const growthLabel = maturity < 1 ? (maturity < 0.5 ? "🌱 Growing" : "🌾 Ripening") : "🍎 Ripe!";
-  const growthFill = useMemo(() => {
-    if (maturity < 0.3) return "#66bb6a";
-    if (maturity < 0.7) return "#fbc02d";
-    return "#e53935";
-  }, [maturity]);
+  const stemHeight = useMemo(() => 130 + maturity * 120, [maturity]);
+  const canopySize = useMemo(() => 90 + maturity * 80, [maturity]);
+  const canopyLift = useMemo(() => 60 + maturity * 40, [maturity]);
+  const waterScale = useMemo(() => 0.45 + clamp(waterAdequacy, 0.1, 1) * 0.55, [waterAdequacy]);
+  const hydration = clamp(waterAdequacy, 0, 1);
 
-  // Layout constants
-  const baseY = 380;
-  const soilHeight = 180;
-  const plantX = 200;
-  const width = 760;
+  const soilColorA = useMemo(() => {
+    const hue = 30 - hydration * 6;
+    const lightness = 32 + hydration * 12;
+    return `hsl(${hue}deg 55% ${lightness}%)`;
+  }, [hydration]);
 
-  // Crop-type placement tweaks
-  const isFruit = ["mango", "apple", "orange", "banana", "pineapple", "guava", "papaya", "lemon", "grapes"].includes(
-    crop
+  const soilColorB = useMemo(() => {
+    const hue = 24 - hydration * 4;
+    const lightness = 24 + hydration * 10;
+    return `hsl(${hue}deg 50% ${lightness}%)`;
+  }, [hydration]);
+
+  const canopyColor = useMemo(() => {
+    const base = palette.canopy.replace("#", "");
+    if (base.length !== 6) return `${palette.canopy}bf`;
+    const alpha = Math.round((0.68 + maturity * 0.22) * 255);
+    const hexAlpha = alpha.toString(16).padStart(2, "0");
+    return `#${base}${hexAlpha}`;
+  }, [maturity, palette.canopy]);
+
+  const yieldIndex = useMemo(() => {
+    if (!yieldTonnes || !areaHa) return 0;
+    const perHa = yieldTonnes / areaHa;
+    return clamp(perHa / 6, 0, 1); // assume 6t/ha as optimistic benchmark
+  }, [yieldTonnes, areaHa]);
+
+  const fieldSize = useMemo(() => 260 + Math.min(140, areaHa * 26), [areaHa]);
+
+  const cssVars = useMemo(
+    () =>
+      ({
+        "--stem-height": `${stemHeight}px`,
+        "--canopy-size": `${canopySize}px`,
+        "--canopy-lift": `${canopyLift}px`,
+        "--crop-stem": palette.stem,
+        "--crop-highlight": palette.highlight,
+        "--crop-canopy": palette.canopy,
+        "--crop-bloom": palette.bloom,
+        "--soil-color-a": soilColorA,
+        "--soil-color-b": soilColorB,
+        "--water-scale": String(waterScale),
+        "--sparkle-opacity": String(0.25 + yieldIndex * 0.55),
+        "--field-size": `${fieldSize}px`,
+        "--hydration": String(hydration),
+        "--canopy-color": canopyColor,
+      }) as React.CSSProperties,
+    [canopyColor, canopyLift, canopySize, fieldSize, hydration, palette, soilColorA, soilColorB, stemHeight, waterScale, yieldIndex],
   );
-  const isBulb = ["onion", "garlic"].includes(crop);
-  const isRoot = ["cassava", "yams", "carrot", "beet"].includes(crop);
-  const isGrain = ["maize", "rice", "sorghum"].includes(crop);
-  const isLegume = ["beans", "cowpea", "chickpea", "lentils", "fava beans", "mung bean"].includes(crop);
-  const isLeafy = ["spinach", "amaranth", "cabbage", "pepper", "tomato", "okra", "broccoli", "cucumber"].includes(crop);
+
+  useEffect(() => {
+    const container = containerRef.current;
+    const scene = sceneRef.current;
+    if (!container || !scene) return;
+
+    let frame = 0;
+    let current = -35;
+    let target = current;
+    let tick = 0;
+    let auto = true;
+
+    const animate = () => {
+      tick += 1;
+      if (auto) {
+        target = -35 + Math.sin(tick / 140) * 38;
+      }
+      current += (target - current) * 0.08;
+      scene.style.transform = `rotateX(32deg) rotateY(${current}deg)`;
+      frame = requestAnimationFrame(animate);
+    };
+
+    const handleMove = (event: PointerEvent) => {
+      const rect = container.getBoundingClientRect();
+      const ratio = clamp((event.clientX - rect.left) / rect.width, 0, 1);
+      target = -60 + ratio * 100;
+      auto = false;
+    };
+
+    const handleLeave = () => {
+      auto = true;
+    };
+
+    container.addEventListener("pointermove", handleMove);
+    container.addEventListener("pointerleave", handleLeave);
+    animate();
+
+    return () => {
+      cancelAnimationFrame(frame);
+      container.removeEventListener("pointermove", handleMove);
+      container.removeEventListener("pointerleave", handleLeave);
+    };
+  }, []);
+
+  const growthLabel = maturity < 1 ? (maturity < 0.5 ? "Growing" : "Ripening") : "Harvest Ready";
+  const hydrationLabel = hydration < 0.5 ? "Irrigation Needed" : hydration < 0.7 ? "Watch Moisture" : "Hydrated";
 
   return (
-    <Stage width={900} height={450}>
-      <Layer>
-        {/* Top meta */}
-        <Text text={`Crop: ${crop.toUpperCase()}`} x={10} y={10} fontSize={16} fontStyle="bold" />
-        <Text
-          text={`Yield: ${yieldTonnes !== null ? Number(yieldTonnes).toFixed(2) : "-"} t  •  Area: ${areaHa} ha`}
-          x={10}
-          y={30}
-          fontSize={14}
-        />
-        <Text
-          text={`Avg Temp: ${avgTemp ?? "-"}°C  •  Avg Precip: ${avgPrecip ?? "-"} mm`}
-          x={10}
-          y={50}
-          fontSize={14}
-        />
-        <Text
-          text={`Growth: ${(maturity * 100).toFixed(0)}%  •  Water stress: ${(waterStress * 100).toFixed(0)}%`}
-          x={10}
-          y={70}
-          fontSize={14}
-        />
+    <div
+      ref={containerRef}
+      className="farm3d"
+      style={cssVars}
+      role="img"
+      aria-label={`3D field visualization for ${crop}`}
+    >
+      <div className="farm3d-inner">
+        <div ref={sceneRef} className="farm3d-scene">
+          <div className="farm3d-field">
+            <div className="farm3d-ground" />
+            <div className="farm3d-shadow" />
+            <div className="farm3d-ring" />
+            <div className="farm3d-water" />
+            <div className="farm3d-plant">
+              <div className="farm3d-stem" />
+              <div className="farm3d-node" />
+              <div className="farm3d-leaf leaf-left" />
+              <div className="farm3d-leaf leaf-right" />
+              <div className="farm3d-canopy" />
+              <div className="farm3d-bloom" />
+            </div>
+            <div className="farm3d-sparkles" aria-hidden />
+            <div className="farm3d-cloud cloud-a" aria-hidden />
+            <div className="farm3d-cloud cloud-b" aria-hidden />
+            <div className="farm3d-sun" aria-hidden />
+          </div>
+        </div>
+      </div>
 
-        <Group x={80} y={baseY}>
-          {/* Soil and roots */}
-          <SoilBlock x={0} y={-soilHeight} width={width} height={soilHeight} moisture={120 /* proxy */} />
-          <Roots x={plantX - 50} y={-20} depth={130} width={160} />
+      <div className="farm3d-hud" role="presentation">
+        <header>
+          <div>
+            <h2>{crop.toUpperCase()}</h2>
+            <p>
+              {growthLabel} · {hydrationLabel}
+            </p>
+          </div>
+          <div className="farm3d-yield-chip">
+            <span>{formatNumber(yieldTonnes, 2)}</span>
+            <small>t expected</small>
+          </div>
+        </header>
 
-          {/* ------------------------------------------------------------------
-              Crop sprite placeholder (vector-only, no <img/> to avoid Konva warning)
-              TODO: Once ./sprites/CropSprite renders `react-konva` <Image />*not* `<img/>`,
-                    you can remove this block and restore <CropSprite cropName={crop} />.
-             ------------------------------------------------------------------ */}
-          <Group>
-            {/* Simple plant icon made of vector shapes (safe in Konva minimal) */}
-            <Line
-              points={[plantX, -40, plantX, -180]}
-              stroke="#2e7d32"
-              strokeWidth={4}
-              lineCap="round"
-              lineJoin="round"
-            />
-            <Circle x={plantX - 16} y={-150} radius={10} fill="#43a047" />
-            <Circle x={plantX + 16} y={-135} radius={12} fill="#43a047" />
-            <Circle x={plantX - 10} y={-110} radius={12} fill="#43a047" />
-          </Group>
+        <section className="farm3d-stats">
+          <article>
+            <h3>Growth Cycle</h3>
+            <div className="farm3d-bar" aria-label={`Growth ${Math.round(maturity * 100)} percent`}>
+              <div style={{ width: `${Math.round(maturity * 100)}%` }} />
+            </div>
+            <footer>
+              <span>{Math.round(maturity * 100)}%</span>
+              <span>{cycleDays} days</span>
+            </footer>
+          </article>
 
-          {/* If/when CropSprite is fixed:
-              <Group>
-                <CropSprite cropName={crop} />
-              </Group>
-          */}
+          <article>
+            <h3>Water Balance</h3>
+            <div className="farm3d-bar" aria-label={`Hydration ${Math.round(hydration * 100)} percent`}>
+              <div style={{ width: `${Math.round(hydration * 100)}%` }} />
+            </div>
+            <footer>
+              <span>{Math.round(hydration * 100)}%</span>
+              <span>{formatNumber(avgPrecip, 1)} mm</span>
+            </footer>
+          </article>
 
-          {/* Growth label */}
-          <Group>
-            <Text text={growthLabel} x={plantX - 20} y={-220} fill={growthFill} fontStyle="bold" />
-          </Group>
-
-          {/* Nutrient HUD */}
-          <NutrientBars x={width - 180} y={-150} N={N} P={P} K={K} />
-        </Group>
-
-        {/* Stress alert */}
-        <Text text={waterStress < 0.6 ? "⚠️ Water Stress Detected" : ""} x={640} y={10} fill="#d32f2f" fontStyle="bold" />
-      </Layer>
-    </Stage>
+          <article>
+            <h3>Field Scale</h3>
+            <div className="farm3d-bar" aria-label={`Area ${Math.round(areaHa * 10) / 10} hectares`}>
+              <div style={{ width: `${clamp(areaHa / 6, 0, 1) * 100}%` }} />
+            </div>
+            <footer>
+              <span>{formatNumber(areaHa, 1)} ha</span>
+              <span>{formatNumber(avgTemp, 1)} °C</span>
+            </footer>
+          </article>
+        </section>
+      </div>
+    </div>
   );
 }

@@ -3,7 +3,7 @@ import React, { forwardRef } from 'react'
 type Variant = 'primary' | 'secondary' | 'ghost'
 
 export interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
-  /** Visual style; maps to classes defined in /public/styles.css */
+  /** Visual style; maps to classes defined in src/styles.css */
   variant?: Variant
   /** When true, shows a spinner and disables the button */
   loading?: boolean
@@ -31,6 +31,7 @@ const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button(
     type, // allow override, but default to "button"
     disabled,
     children,
+    style,
     ...rest
   },
   ref
@@ -39,10 +40,10 @@ const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button(
   const base = 'btn'
   const variantClass =
     variant === 'secondary' ? 'secondary' : variant === 'ghost' ? 'ghost' : ''
-  const widthClass = fullWidth ? 'w-full' : '' // harmless; ignored if no utility CSS
 
-  const classes = [base, variantClass, widthClass, className].filter(Boolean).join(' ')
+  const classes = [base, variantClass, className].filter(Boolean).join(' ')
   const isDisabled = disabled || loading
+  const mergedStyle = fullWidth ? { width: '100%', ...style } : style
 
   return (
     <button
@@ -52,6 +53,7 @@ const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button(
       disabled={isDisabled}
       aria-busy={loading || undefined}
       aria-live={loading ? 'polite' : undefined}
+      style={mergedStyle}
       {...rest}
     >
       {leftIcon ? <span style={{ display: 'inline-flex', marginRight: 6 }}>{leftIcon}</span> : null}

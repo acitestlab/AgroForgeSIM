@@ -1,154 +1,122 @@
-// src/panels/Inspector.tsx
 import React, { useMemo } from "react";
-import { useStore } from "../store";
+import Button from "../components/Button";
+import { useStore, type Task } from "../store";
 
-export default function Inspector() {
-  // SAFELY read from the store (won’t throw on first render)
-  const selectedId = useStore((s) => s.selectedId ?? null);
+function parseDate(value: string) {
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function formatDateLabel(task: Task) {
+  const parsed = parseDate(task.date);
+  if (!parsed) return task.date;
+  return parsed.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+}
+
+function formatLongDate(value: string) {
+  const parsed = parseDate(value);
+  if (!parsed) return value;
+  return parsed.toLocaleDateString(undefined, {
+    month: "long",
+    day: "numeric",
+    year: "numeric",
+  });
+}
+
+export default function Timeline() {
+  const plan = useStore((s) => (Array.isArray(s.result?.plan) ? (s.result!.plan as Task[]) : []));
+  const loading = useStore((s) => !!s.loading?.sim);
+  const runSim = useStore((s) => s.runSim);
   const nodes = useStore((s) => s.nodes ?? []);
-  const crops = useStore((s) => s.crops ?? {});
-  const upsertNode = useStore((s) => s.upsertNode);
-  const setCrop = useStore((s) => s.setCrop);
+  const selectedId = useStore((s) => s.selectedId);
 
-  // If you later add removeNode to the store, replace this with the real action
-  const removeNode = (_id: string) => {
-    alert("Delete not implemented yet in the store. Add `removeNode` to store.ts to enable.");
-  };
-
-  // Find the selected node; fall back to the first one if nothing is selected
-  const node = useMemo(() => {
-    if (selectedId) return nodes.find((n) => n.id === selectedId) ?? null;
-    return nodes[0] ?? null;
+  const selectedName = useMemo(() => {
+    if (selectedId) {
+      const found = nodes.find((n) => n.id === selectedId);
+      if (found) return found.name ?? found.label ?? "Selected field";
+    }
+    const first = nodes[0];
+    return first?.name ?? first?.label ?? "Selected field";
   }, [nodes, selectedId]);
 
-  // crops → groups; avoid crashing when crops is undefined/null
-  const cropGroups = useMemo(() => Object.entries(crops), [crops]);
-  const allCrops = useMemo(
-    () => cropGroups.flatMap(([, arr]) => arr),
-    [cropGroups]
-  );
-
-  if (!node) {
-    return <div className="card">Select a node to inspect.</div>;
-  }
-
-  const onLabelChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const name = e.target.value;
-    upsertNode({ ...node, name }); // store uses `name` (not `label`)
-  };
-
-  const onAreaChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const val = parseFloat(e.target.value);
-    if (!Number.isNaN(val) && val > 0) {
-      upsertNode({ ...node, area_ha: val }); // store uses `area_ha` (not `area_acres`)
-    }
-  };
-
-  const onCropChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
-    const value = e.target.value;
-    if (value && (allCrops.length === 0 || allCrops.includes(value))) {
-      // This also mirrors into selected node via setCrop in the merged store
-      setCrop(value);
-      // Keep node view in sync immediately
-      upsertNode({ ...node, crop: value });
-    }
-  };
+  const sortedPlan = useMemo(() => {
+    const items = Array.isArray(plan) ? [...plan] : [];
+    items.sort((a, b) => {
+      const da = parseDate(a.date)?.getTime() ?? Number.MAX_SAFE_INTEGER;
+      const db = parseDate(b.date)?.getTime() ?? Number.MAX_SAFE_INTEGER;
+      return da - db;
+    });
+    return items;
+  }, [plan]);
 
   return (
-    <div className="card" role="region" aria-labelledby="inspector-title">
-      <h3 id="inspector-title" style={{ marginTop: 0 }}>
-        Inspector
-      </h3>
-
-      <div style={{ display: "grid", gap: 10 }}>
+    <div className="card" role="region" aria-labelledby="timeline-title" style={{ display: "grid", gap: 12 }}>
+      <header style={{ display: "flex", alignItems: "center", gap: 12 }}>
         <div>
-          <label htmlFor="node-id" style={{ display: "block", opacity: 0.7 }}>
-            ID
-          </label>
-          <input id="node-id" value={node.id} readOnly style={{ width: "100%" }} />
+          <h3 id="timeline-title" style={{ margin: 0 }}>
+            Field timeline
+          </h3>
+          <small style={{ opacity: 0.75 }}>Operations for {selectedName}</small>
         </div>
+        <Button
+          variant="secondary"
+          onClick={() => runSim?.()}
+          disabled={loading}
+          style={{ marginLeft: "auto" }}
+        >
+          Refresh plan
+        </Button>
+      </header>
 
+      {loading && <p aria-live="polite">Fetching the latest plan…</p>}
+
+      {!loading && sortedPlan.length === 0 && (
         <div>
-          <label htmlFor="node-label" style={{ display: "block" }}>
-            Label
-          </label>
-          <input
-            id="node-label"
-            value={node.name ?? ""} // store’s field name is `name`
-            onChange={onLabelChange}
-            placeholder="Name this item"
-            style={{ width: "100%" }}
-          />
+          <p style={{ margin: "8px 0" }}>No scheduled operations yet.</p>
+          <Button onClick={() => runSim?.()}>Generate timeline</Button>
         </div>
+      )}
 
-        {/* Only show area & crop for plot-like nodes (keep flexible if `type` is missing) */}
-        {(node as any).type === "plot" || true ? (
-          <>
-            <div>
-              <label htmlFor="node-area" style={{ display: "block" }}>
-                Area (ha)
-              </label>
-              <input
-                id="node-area"
-                type="number"
-                min={0.1}
-                step={0.1}
-                value={typeof node.area_ha === "number" ? node.area_ha : 1}
-                onChange={onAreaChange}
-                style={{ width: "100%" }}
-              />
-            </div>
-
-            <div>
-              <label htmlFor="node-crop" style={{ display: "block" }}>
-                Crop
-              </label>
-              {cropGroups.length > 0 ? (
-                <select
-                  id="node-crop"
-                  value={node.crop ?? ""}
-                  onChange={onCropChange}
-                  style={{ width: "100%" }}
-                >
-                  <option value="" disabled>
-                    — choose —
-                  </option>
-                  {cropGroups.map(([group, list]) => (
-                    <optgroup key={group} label={group}>
-                      {list.map((c) => (
-                        <option key={c} value={c}>
-                          {c.charAt(0).toUpperCase() + c.slice(1)}
-                        </option>
-                      ))}
-                    </optgroup>
-                  ))}
-                </select>
-              ) : (
-                <select
-                  id="node-crop"
-                  value={node.crop ?? ""}
-                  onChange={onCropChange}
-                  style={{ width: "100%" }}
-                >
-                  <option value="" disabled>
-                    — choose —
-                  </option>
-                </select>
-              )}
-            </div>
-          </>
-        ) : null}
-
-        <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
-          <button
-            className="btn secondary"
-            onClick={() => removeNode(node.id)}
-            aria-label="Delete node"
-          >
-            Delete
-          </button>
-        </div>
-      </div>
+      {!loading && sortedPlan.length > 0 && (
+        <ol
+          className="timeline-list"
+          style={{
+            listStyle: "none",
+            padding: 0,
+            margin: 0,
+            display: "grid",
+            gap: 10,
+            maxHeight: 260,
+            overflowY: "auto",
+          }}
+        >
+          {sortedPlan.map((task, idx) => (
+            <li
+              key={`${task.date}-${task.op}-${idx}`}
+              style={{
+                display: "grid",
+                gridTemplateColumns: "120px 1fr",
+                gap: 12,
+                alignItems: "start",
+                padding: "10px 12px",
+                borderRadius: 10,
+                background: "rgba(15, 23, 42, 0.35)",
+                border: "1px solid rgba(148, 163, 184, 0.18)",
+                boxShadow: "0 4px 12px rgba(15, 23, 42, 0.25)",
+              }}
+            >
+              <div>
+                <div style={{ fontWeight: 700 }}>{formatDateLabel(task)}</div>
+                <div style={{ fontSize: 12, opacity: 0.7 }}>{formatLongDate(task.date)}</div>
+              </div>
+              <div>
+                <div style={{ fontWeight: 600 }}>{task.op}</div>
+                <div style={{ fontSize: 13, opacity: 0.85 }}>{task.notes || "-"}</div>
+              </div>
+            </li>
+          ))}
+        </ol>
+      )}
     </div>
   );
 }
